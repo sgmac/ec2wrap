@@ -5,20 +5,19 @@
 #
 ####################################
 
-
-
 usage(){
 cat<<EOF
 usage: $(basename $0) [OPTIONS] cmd
       -h,--help      			Show this menu
-      -a,--arch      			Architecture (x86,i386..) [list]
+      -a,--arch      			Architecture (x86,i386..)
       -A,--ami             	        Bootstrap selected AMI
       -g,--group			Security group (default)
       -k,--keypair			Keypair
       -n,--multiple-instances		Clone n times the same configuration
       -r,--region			Region for the instance
       -t,--instance-type		Instace type 
-      list				List avilable AMIs
+      create				Creates a new instance
+      list				Lists instances
       start				Starts an instance
       stop				Stops an instance
       terminate				Terminates an instance
@@ -37,8 +36,12 @@ reset='$(tput sgr0)'
 
 list_instances() {
 	echo "Listing..."
-	listing=$(ec2din )
-	echo "$listing"
+	ec2out=$(ec2din | grep -Ei "Instance" )
+	ami=$(echo $ec2out        | grep -Eoi "\bami\-[0-9a-z]*\b")
+	public_dns=$(echo $ec2out | grep -Eoi "ec2-[0-9]{2,3}.*\.com\>")
+
+	printf "AMI: %s\t   Public-DNS: %s\n" $ami $public_dns
+
 }
 
 create_instance() {
