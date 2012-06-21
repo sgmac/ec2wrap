@@ -25,8 +25,14 @@ EOF
 exit
 }
 
-# Debugging with Colors
+EC2_CONF="$HOME/.ec2w"
 
+# Create default configuration
+if [ ! -d "$EC2_CONF" ];then
+	mkdir "$EC2_CONF" && touch "$EC2_CONF/ec2alias"
+fi
+
+# Color debug
 red='$(tput setaf 1)'
 green='$(tput setaf 2)'
 yellow='$(tput setaf 3)'
@@ -41,7 +47,6 @@ list_instances() {
 	public_dns=$(echo $ec2out | grep -Eoi "ec2-[0-9]{2,3}.*\.com\>")
 
 	printf "AMI: %s\t   Public-DNS: %s\n" $ami $public_dns
-
 }
 
 create_instance() {
@@ -55,6 +60,7 @@ create_instance() {
 	create_ins=$(ec2run ${options[0]} -g ${options[1]} -k ${options[2]} -t ${options[3]} --availability-zone ${options[4]} --instance-initiated-shutdown-behavior stop )
 
 }
+
 start_instance() {
 
 	#new_public_dns=$(ec2din | grep -Eoi "ec2.*\.com\>")
