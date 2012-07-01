@@ -1,9 +1,13 @@
 #!/bin/bash
 #
+# ec2wrap.sh
 # Author: sergalma@gmail.com
 # Date: 11/06/2012
 #
 ####################################
+# set -x 
+####################################
+
 usage(){
 cat<<EOF
 usage: $(basename $0) [OPTIONS] cmd
@@ -22,7 +26,7 @@ usage: $(basename $0) [OPTIONS] cmd
       list				Lists instances.
       start				Starts an instance.
       stop				Stops an instance.
-      terminate				Terminates an instance.
+      kill 				Terminates an instance.
       tags				List aliases for instances.
 EOF
 exit
@@ -31,58 +35,85 @@ exit
 # Global configuration variables
 EC2_DIR="$HOME/.ec2w"
 EC2DIN="$EC2_DIR/ec2din"
-EC2_ALIASES="ec2alias"
-EC2_TIMESTAMP="$EC2_DIR/timestamp"
+EC2_ALIASES="$EC2_DIR/ec2alias"
 
 # Create default configuration
 if [ ! -d "$EC2_DIR" ];then
-	mkdir "$EC2_DIR" && touch "$EC2_DIR/$EC2_ALIASES" && touch "$EC2_TIMESTAMP"
-
+	mkdir "$EC2_DIR" && touch "$EC2_ALIASES" && touch "$EC2_TIMESTAMP"
 fi
 
-# Color debug
-red='$(tput setaf 1)'
-green='$(tput setaf 2)'
-yellow='$(tput setaf 3)'
-blue='$(tput setaf 4)'
-reset='$(tput sgr0)'
+# Color definition
+lred=$(tput bold)$(tput setaf 1)
+lgreen=$(tput bold)$(tput setaf 2)
+yellow=$(tput bold)$(tput setaf 3)
+purpple=$(tput bold)$(tput setaf 5)
+lblue=$(tput bold)$(tput setaf 4)
+white=$(tput bold)$(tput setaf 7)
+red=$(tput bold)$(tput setaf 1)
+green=$(tput setaf 2)
+blue=$(tput setaf 4)
+reset=$(tput bold)$(tput sgr0)
 
+## Updates the the file on EC2_DIN
 update_instances_info() {
-	printf "Updating instances"
-	for ((i=0; i < 40; i++))
+
+	printf "${lgreen}"
+	for ((i=0; i < 20; i++))
 	do
 	        printf "."
-		        sleep 1
+		        sleep 3 
 		done
-	printf "\n"
+	printf "[OK]\n$reset"
 	ec2out=$(ec2din |grep -Ei "INSTANCE" > "$EC2DIN" ) 
 }
 
+## List the state of the instances and some information, not in realtime. 
+## If you either stop or start an instance it will run 'update_instances_info'
+## to wait sometime (in the meantime the instances is in pending state)
+
 list_instances() {
 
-	echo "Listing..."
-	ec2out=$(cat "$EC2DIN")
-
-	local  ninstances=$( echo "$ec2out" | grep -ic "INSTANCE" )
-	local -a ami=( $(echo $ec2out       | grep -Eoi "\bami\-[0-9a-z]*\b") );
-	local -a public_dns=( $(echo $ec2out| grep -Eoi "ec2\-([0-9]{1,3}\-){3}[0-9]{1,3}.eu-west-1.compute.amazonaws.com") );
-	local -a ids=(      $( echo $ec2out | grep -Eoi "\bi\-[0-9a-z]+\b" ) );
-	local -a state=(    $( echo $ec2out | grep -Eoi "(running|stopped)") );
+	ec2out=$(cat $EC2DIN)
+	ninstances=$( echo "$ec2out"  | grep -Ec "INSTANCE" )
 	local default="noalias"	
 
-	for index in `seq 0 $(($ninstances -1))` 
-	do
-		aliasami="$(grep ${ami[$index]} "$EC2_DIR/$EC2_ALIASES" | cut -d':' -f1)"
-		aliasami="${aliasami:=$default}"
-		#printf "AMI: %s\t Pub-DNS: %s (%s)  ID: %s\t Alias:%s\n" ${ami[$index]} ${public_dns[$index]} ${state[$index]} ${ids[$index]} $aliasami 
-		if [ "${state[$index]}" == "stopped" ];then
-			printf "AMI: %s\t ID: %s\t [%s]\n" ${ami[$index]} ${ids[$index]} ${state[$index]}
-		else
+	# Fill in an array with the instances' information, on INSTANCE line
+	# one member of the array.
+	local -A instances=(  );
 
-			printf "AMI: %s\t Pub-DNS: %s (%s)  ID: %s\t Alias:%s\n" ${ami[$index]} ${public_dns[$index]} ${state[$index]} ${ids[$index]} $aliasami 
+	printf "${lblue}AMI\t\t DNS\t\t\t\t\t\t\t STATE\t\t ID\t\t ALIAS${reset}\n"
+	for ((n=0; n < $ninstances; n++))
+	do
+	       	field=$(($n+1))
+	        instances["$n"]=$(echo $ec2out   | sed -e 's/INSTANCE //' | awk -F"INSTANCE" "{print $"$field"}")
+	       	ami=$(echo     ${instances[$n]}  | grep -Eoi "\bami\-[0-9a-z]*\b") 
+		pubdns=$(echo  ${instances[$n]}  | grep -Eoi "ec2\-([0-9]{1,3}\-){3}[0-9]{1,3}.eu-west-1.compute.amazonaws.com")
+		id=$(echo     ${instances[$n]}   | grep -Eoi "\bi\-[0-9a-z]+\b" )
+		state=$( echo  ${instances[$n]}  | grep -Eoi "(running|stopped)")
+
+		aliasami="$(grep $ami "$EC2_ALIASES" | cut -d':' -f1)"
+		aliasami="${aliasami:=$default}"
+
+		
+		if [ "$state" == "stopped" ];then
+			printf "$yellow%s$reset\t $white---$reset\t\t\t\t\t\t\t $lred%s$reset\t %s\t %s\t\n" $ami $state $id $aliasami
+		else
+			printf "$yellow%s$reset\t $white%s\t $lgreen%s$reset\t %s\t %s\n" $ami $pubdns $state $id $aliasami 
 		fi
+
 	done
+	
+	if [ "$_DEBUG" == "1" ];then
+		printf "${lred}ami=%s${reset}\n" ${ami[@]}
+		printf "${lred}public=%s${reset}\n" ${public_dns[@]}
+		printf "${lred}ids=%s${reset}\n" ${ids[@]}
+		printf "${lred}state=%s${reset}\n" ${state[@]}
+	fi
 }
+
+# Creates the instance with the provided arguments, at least 5 args are required
+# AMI, group, keypair, instance type, zone  and optional --alias, which adds
+# a tag to a instance so you clone instances using that tag.
 
 create_instance() {
 
@@ -107,46 +138,110 @@ create_instance() {
 
 }
 
+# Starts the instance:
+# ec2wrap start -id i-79009
 start_instance() {
 
-	local id_instance="$1"
-	echo "Starting $id_instance"
-	ins=$(ec2start $id_instance)
-	update_instances_info 
-
-	#new_public_dns=$(ec2din | grep -Eoi "ec2.*\.com\>")
-	#sed -ie "s/ec2.*\.com/$new_public_dns/" .ssh/config
+	fn="${FUNCNAME%_*}"
+	local instance_id="$1"
+	printf "Starting $instance_id "
+	ins=$(ec2start $instance_id)
+	update_instances_info  
+	update_ssh_config "$instance_id" "$fn"
 }
 
+# Stops the instance:
+# ec2wrap stop -id i-79009
 stop_instance() {
 
 	local id_instance="$1"
-	echo "Stopping $id_instance"
+	printf "Stopping $id_instance "
 	ins=$(ec2stop $id_instance)
 	update_instances_info 
 }
 
+# Terminates the instane
+# ec2wrap stop -id i-79009
+kill_instance() {
 
+	local id_instance="$1"
+	printf "You are about removing the %s instance,\nDo you want to continue?\nPress yes or not:" $id_instance
+	read -n1 -r -s killornot
+        case "$killornot" in
+		Y*|y*)
+			printf "\nTerminating instance\n"
+			ins=$(ec2kill $id_instance)
+			;;
+		N*|n*)
+			printf "\nKilling instance aborted\n"
+			exit 0
+			;;
+
+		*)	printf "\nAborting\n"
+			exit 1
+			;;
+	esac
+	update_instances_info 
+}
+
+update_ssh_config() {
+
+	local instance_id="$1"	
+	local from="$2"
+
+	new_public_dns=""
+
+	while [ "$new_public_dns" == "" ]
+	do
+		new_public_dns=$( ec2din | grep $instance_id | grep -Eoi "ec2.*\.com\>")
+	done
+
+	# Check if there is  already an entry,
+        # delete 'Hostname' entry just after the match of 'Host' 
+	# and then insert the new one.
+
+	cmd=$(grep -Eqi "$instance_id" $HOME/.ssh/config )
+	
+	# If there is not match, add a new entry for that AMI.
+	if [ $? -ne 0 ]; then
+cat<< EOF >> $HOME/.ssh/config
+
+Host $instance_id
+	Hostname $new_public_dns
+       	User root
+       	IdentityFile /home/$USER/.ssh/ec2-centos.pem	
+EOF
+	else 
+		r=$(sed -i  "/Host $instance_id/,+1 s/\(Hostname\) \(.*\)/\1 $new_public_dns/" $HOME/.ssh/config )
+		if [ $? -eq 0 ];then
+			printf "Updated for %s successful \n" $new_public_dns
+		fi
+	fi
+}
+
+# List all aliases or a given one
 tags() {
 
 	# List a given alias or list all if the file exists
 	# and is not empty.
-
 	local alias="$1"
-	if [ -s "$EC2_DIR/$EC2_ALIASES" ];then
+	if [ -s "$EC2_ALIASES" ];then
 		if [ -n "$alias" ];then
-			match=$(grep -Ei "$alias" $EC2_DIR/$EC2_ALIASES)
+			match=$(grep -Ei "$alias" $EC2_ALIASES)
 			printf "%s\n" $match
 			exit 0;
 		fi
-		cat "$EC2_DIR/$EC2_ALIASES" 
+		cat "$EC2_ALIASES" 
 	fi
 	
 }
 
+# Clone instances using alias
+# ec2wrap clone --alias=memache 
+# NOTE: allow to change options from an alias
 clone() {
 
-	local ec2_aliases_file="$EC2_DIR/$EC2_ALIASES" 
+	local ec2_aliases_file="$EC2_ALIASES" 
 	local -a options=( $2 )
 	local alias="$1"
 
@@ -181,6 +276,8 @@ clone() {
 	fi	
 }
 
+## Main 
+
 [ "$#" -gt 0 ] || usage
 
 set -- `getopt -u  -n$0 -o ha:A:g:i:k:t:n:r: -l help,arch:,ami:,group:,id:,key-pair:,instance-type:,multiple-instances:,zone:,alias:: -- "$@"`
@@ -209,7 +306,7 @@ declare -a options_new_instance=( $ami $group $keypair $instance_type $zone $aka
 
 if [ "$_DEBUG" == "1" ];then
 	# Give color
-	echo -e "$r**DEBUGGING**$reset:Options new instance: ${#options_new_instance[@]} \n ${options_new_instance[@]}\n"
+	echo -e "$lred**{DEBUG}**$reset:Options new instance: ${#options_new_instance[@]} \n ${options_new_instance[@]}\n"
 fi
 
 option="$1"
@@ -221,8 +318,11 @@ case ${option} in
 			;;
 	stop) 		if [ -n "$id" ]; then stop_instance "$id"; fi
 			;;
-	terminate)      echo "Terminate";;
-	tags)       	echo "[Tags]";tags "$aka";;
+	kill)     	kill_instance "$id" ;;
+	tags)       	printf "[Tags]\n";tags "$aka";;
+	update)       	printf "Manual update" 
+			update_instances_info
+		;;
 	*) echo "Not found";;
 esac
 
