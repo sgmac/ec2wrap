@@ -69,7 +69,7 @@ update_instances_info() {
 
 ## List the state of the instances and some information, not in realtime. 
 ## If you either stop or start an instance it will run 'update_instances_info'
-## to wait sometime (in the meantime the instances is in pending state)
+## to wait sometime (in the meantime the instance is in pending state)
 
 list_instances() {
 
