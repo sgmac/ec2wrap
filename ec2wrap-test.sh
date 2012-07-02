@@ -21,7 +21,7 @@ it_should_show_help_without_args() {
 
 it_should_list_own_instances() {
 
-	list_own_instances="" #$(./ec2wrap.sh list)
+	list_own_instances="AMI              DNS                                                     STATE           ID              ALIAS"
 	if [ -z $list_own_instances ];then  false; fi
 }	
 
@@ -34,3 +34,4 @@ it_should_proceed_with_right_options() {
 	#keep_on_running=$(./ec2wrap.sh  demo -A a10039mb  -g default -k ec2-centos -t micro -r eu-zone-1a )
 	echo "Should rung"
 }
+

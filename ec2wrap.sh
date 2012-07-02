@@ -36,6 +36,7 @@ exit
 EC2_DIR="$HOME/.ec2w"
 EC2DIN="$EC2_DIR/ec2din"
 EC2_ALIASES="$EC2_DIR/ec2alias"
+ID_INSTANCE=""
 
 # Create default configuration
 if [ ! -d "$EC2_DIR" ];then
@@ -87,15 +88,15 @@ list_instances() {
 	       	field=$(($n+1))
 	        instances["$n"]=$(echo $ec2out   | sed -e 's/INSTANCE //' | awk -F"INSTANCE" "{print $"$field"}")
 	       	ami=$(echo     ${instances[$n]}  | grep -Eoi "\bami\-[0-9a-z]*\b") 
-		pubdns=$(echo  ${instances[$n]}  | grep -Eoi "ec2\-([0-9]{1,3}\-){3}[0-9]{1,3}.eu-west-1.compute.amazonaws.com")
+		pubdns=$(echo  ${instances[$n]}  | grep -Eoi "ec2.*\.com\>") 
 		id=$(echo     ${instances[$n]}   | grep -Eoi "\bi\-[0-9a-z]+\b" )
-		state=$( echo  ${instances[$n]}  | grep -Eoi "(running|stopped)")
+		state=$( echo  ${instances[$n]}  | grep -Eoi "(running|stopped|pending|terminated)")
 
 		aliasami="$(grep $ami "$EC2_ALIASES" | cut -d':' -f1)"
 		aliasami="${aliasami:=$default}"
 
 		
-		if [ "$state" == "stopped" ];then
+		if [[ "$state" =~ terminated|stopped|pending ]];then 
 			printf "$yellow%s$reset\t $white---$reset\t\t\t\t\t\t\t $lred%s$reset\t %s\t %s\t\n" $ami $state $id $aliasami
 		else
 			printf "$yellow%s$reset\t $white%s\t $lgreen%s$reset\t %s\t %s\n" $ami $pubdns $state $id $aliasami 
@@ -103,12 +104,6 @@ list_instances() {
 
 	done
 	
-	if [ "$_DEBUG" == "1" ];then
-		printf "${lred}ami=%s${reset}\n" ${ami[@]}
-		printf "${lred}public=%s${reset}\n" ${public_dns[@]}
-		printf "${lred}ids=%s${reset}\n" ${ids[@]}
-		printf "${lred}state=%s${reset}\n" ${state[@]}
-	fi
 }
 
 # Creates the instance with the provided arguments, at least 5 args are required
@@ -132,17 +127,21 @@ create_instance() {
 		printf "Error: args missing, provided %d\n" ${#opts[@]}
 		exit 0;
 	fi
-
+	
 	ins=$(ec2run ${opts[0]} -g ${opts[1]} -k ${opts[2]} -t ${opts[3]} --availability-zone ${opts[4]} --instance-initiated-shutdown-behavior stop)
+
+	# When cloning an ID is requried, in order to update  
+	# the '$HOME/.ssh/config'.
+	ID_INSTANCE=$( echo  $ins | grep -Eoi "\bi\-[0-9a-z]+\b" )
 	if [ -n "$alias_instance" ]; then echo "ALIAS:$alias_instance" ; fi
 
 }
 
 # Starts the instance:
-# ec2wrap start -id i-79009
+# ec2wrap start -id i-718ae639
 start_instance() {
 
-	fn="${FUNCNAME%_*}"
+	fn="${funcname%_*}"
 	local instance_id="$1"
 	printf "Starting $instance_id "
 	ins=$(ec2start $instance_id)
@@ -151,7 +150,7 @@ start_instance() {
 }
 
 # Stops the instance:
-# ec2wrap stop -id i-79009
+# ec2wrap stop -id i-718ae639
 stop_instance() {
 
 	local id_instance="$1"
@@ -161,16 +160,19 @@ stop_instance() {
 }
 
 # Terminates the instane
-# ec2wrap stop -id i-79009
+# ec2wrap kill -id i-718ae639
 kill_instance() {
 
 	local id_instance="$1"
-	printf "You are about removing the %s instance,\nDo you want to continue?\nPress yes or not:" $id_instance
-	read -n1 -r -s killornot
+	local fn="${FUNCNAME%_*}"
+
+	printf "Do you want to continue?\nPress yes or not:" $id_instance
+	read -r -s killornot
         case "$killornot" in
 		Y*|y*)
-			printf "\nTerminating instance\n"
+			printf "\n${red}Terminating instance\n"
 			ins=$(ec2kill $id_instance)
+			update_ssh_config "$id_instance" "$fn"
 			;;
 		N*|n*)
 			printf "\nKilling instance aborted\n"
@@ -187,23 +189,33 @@ kill_instance() {
 update_ssh_config() {
 
 	local instance_id="$1"	
-	local from="$2"
+	local action="$2"
 
 	new_public_dns=""
-
-	while [ "$new_public_dns" == "" ]
-	do
-		new_public_dns=$( ec2din | grep $instance_id | grep -Eoi "ec2.*\.com\>")
-	done
+		
+	if [ "$action" != "kill" ];then
+	       	while [ "$new_public_dns" == "" ]
+	       	do
+		       	new_public_dns=$( ec2din | grep $instance_id | grep -Eoi "ec2.*\.com\>")
+	       	done 
+	fi
 
 	# Check if there is  already an entry,
         # delete 'Hostname' entry just after the match of 'Host' 
 	# and then insert the new one.
 
 	cmd=$(grep -Eqi "$instance_id" $HOME/.ssh/config )
-	
-	# If there is not match, add a new entry for that AMI.
-	if [ $? -ne 0 ]; then
+
+	if [ "$action" == "kill" ];then
+		set -x
+		printf "${lgreen}Updating .ssh/config$reset"
+		if [ -n "$instance_id" ];then
+		       	r=$(sed -i "/Host $instance_id/,+3d" $HOME/.ssh/config)
+		fi
+		exit 0
+	else 
+		# If there is not match, add a new entry for that AMI.  
+		if [ $? -ne 0 ]; then
 cat<< EOF >> $HOME/.ssh/config
 
 Host $instance_id
@@ -211,10 +223,11 @@ Host $instance_id
        	User root
        	IdentityFile /home/$USER/.ssh/ec2-centos.pem	
 EOF
-	else 
-		r=$(sed -i  "/Host $instance_id/,+1 s/\(Hostname\) \(.*\)/\1 $new_public_dns/" $HOME/.ssh/config )
-		if [ $? -eq 0 ];then
-			printf "Updated for %s successful \n" $new_public_dns
+		else 
+			r=$(sed -i  "/Host $instance_id/,+1 s/\(Hostname\) \(.*\)/\1 $new_public_dns/" $HOME/.ssh/config )
+			if [ $? -eq 0 ];then
+				printf "Updated for %s successful \n" $new_public_dns
+			fi
 		fi
 	fi
 }
@@ -233,7 +246,6 @@ tags() {
 		fi
 		cat "$EC2_ALIASES" 
 	fi
-	
 }
 
 # Clone instances using alias
@@ -241,14 +253,17 @@ tags() {
 # NOTE: allow to change options from an alias
 clone() {
 
+	local fn="$FUNCNAME"
 	local ec2_aliases_file="$EC2_ALIASES" 
 	local -a options=( $2 )
 	local alias="$1"
-
+	
+	printf "${lblue}Cloning $alias $reset"
 	if [ -s "$ec2_aliases_file" -a  -n "$alias" ];then
 		grep -Eiq "\b$alias:"  "$ec2_aliases_file"
 		if [ $? -ne 0 ];then
 			printf "Error: alias (%s) not found\n"  $alias
+			exit 1
 		else
 			# Get all the parameters, allow to override some
 			# and call create_instance with this array.
@@ -274,6 +289,10 @@ clone() {
 	else
 		printf "Error: alias not found or file not defined\n"
 	fi	
+	update_instances_info
+	update_ssh_config "$ID_INSTANCE" "$fn"
+	printf "$lred ssh $ID_INSTANCE\n" 
+	checkKey=$(ssh -o StrictHostKeyChecking=no $ID_INSTANCE)
 }
 
 ## Main 
@@ -304,11 +323,6 @@ done
 
 declare -a options_new_instance=( $ami $group $keypair $instance_type $zone $aka) 
 
-if [ "$_DEBUG" == "1" ];then
-	# Give color
-	echo -e "$lred**{DEBUG}**$reset:Options new instance: ${#options_new_instance[@]} \n ${options_new_instance[@]}\n"
-fi
-
 option="$1"
 case ${option} in
 	create)		create_instance "${options_new_instance[@]}" ;;
@@ -320,7 +334,7 @@ case ${option} in
 			;;
 	kill)     	kill_instance "$id" ;;
 	tags)       	printf "[Tags]\n";tags "$aka";;
-	update)       	printf "Manual update" 
+	update)       	printf "Manual update " 
 			update_instances_info
 		;;
 	*) echo "Not found";;
