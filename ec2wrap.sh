@@ -64,11 +64,10 @@ reset=$(tput bold)$(tput sgr0)
 update_instances_info() {
 
 	printf "${lgreen}"
-	for ((i=0; i < 20; i++))
-	do
+	for ((i=0; i < 20; i++)); do
 	        printf "."
-		        sleep 3 
-		done
+	        sleep 3 
+	done
 	printf "[OK]\n$reset"
 	ec2out=$(ec2din |grep -Ei "INSTANCE" > "$EC2DIN" ) 
 }
@@ -87,7 +86,7 @@ list_instances() {
 	# one member of the array.
 	local -A instances=(  );
 
-	printf "${lblue}AMI\t\t DNS\t\t\t\t\t\t\t STATE\t\t ID\t\t ALIAS${reset}\n"
+	printf "${lblue}AMI\t\t DNS\t\t\t\t\t\t\t STATE\t\t ID\t\t ALIAS\t\t INS.TYPE${reset}\n"
 	for ((n=0; n < $ninstances; n++))
 	do
 	       	field=$(($n+1))
@@ -96,14 +95,15 @@ list_instances() {
 		pubdns=$(echo  ${instances[$n]}  | grep -Eoi "ec2.*\.com\>") 
 		id=$(echo     ${instances[$n]}   | grep -Eoi "\bi\-[0-9a-z]+\b" )
 		state=$( echo  ${instances[$n]}  | grep -Eoi "(running|stopped|pending|terminated)")
+		instyp=$(echo  ${instances[$n]}  | grep -Eoi "[t|m|c|g]{1,2}[0-9]\.[0-9]?[a-z]+" )
 
 		aliasami="$(grep $ami "$EC2_ALIASES" | cut -d':' -f1)"
 		aliasami="${aliasami:=$default}"
 
 		if [[ "$state" =~ terminated|stopped|pending ]];then 
-			printf "$yellow%s$reset\t $white---$reset\t\t\t\t\t\t\t $lred%s$reset\t %s\t %s\t\n" $ami $state $id $aliasami
+			printf "$yellow%s$reset\t $white---$reset\t\t\t\t\t\t\t $lred%s$reset\t %s\t %s\t %s\n" $ami $state $id $aliasami $instyp
 		else
-			printf "$yellow%s$reset\t $white%s\t $lgreen%s$reset\t %s\t %s\n" $ami $pubdns $state $id $aliasami 
+			printf "$yellow%s$reset\t $white%s\t $lgreen%s$reset\t %s\t %s\t %s\n" $ami $pubdns $state $id $aliasami $instyp
 		fi
 	done
 }
