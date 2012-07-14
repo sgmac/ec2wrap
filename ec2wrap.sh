@@ -78,6 +78,10 @@ update_instances_info() {
 
 list_instances() {
 
+	if [ ! -e "$EC2DIN" ];then
+		ec2out=$(ec2din |grep -Ei "INSTANCE" > "$EC2DIN" ) 
+	fi
+
 	ec2out=$(cat $EC2DIN)
 	ninstances=$( echo "$ec2out"  | grep -Ec "INSTANCE" )
 	local default="noalias"	
@@ -207,7 +211,6 @@ update_ssh_config() {
         # delete 'Hostname' entry just after the match of 'Host' 
 	# and then insert the new one.
 
-	cmd=$(grep -Eqi "$instance_id" $HOME/.ssh/config )
 
 	if [ "$action" == "kill" ];then
 		printf "${lgreen}Updating .ssh/config$reset"
@@ -215,6 +218,7 @@ update_ssh_config() {
 		       	r=$(sed -i "/Host $instance_id/,+3d" $HOME/.ssh/config)
 		fi
 	else 
+		cmd=$(grep -Eqi "$instance_id" $HOME/.ssh/config )
 		# If there is not match, add a new entry for that AMI.  
 		if [ $? -ne 0 ]; then
 cat<< EOF >> $HOME/.ssh/config
