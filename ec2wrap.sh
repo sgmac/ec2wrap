@@ -7,11 +7,11 @@
 # date:		11-06-2012
 # version:	0.1
 # dependencies: Java JRE and Amazon EC2 tools
-# special:	Setting '_DEBUG=1' as a shell env allows to debug
-#               without.
+# special:	Setting '_DEBUG=1' as a shell env var, allows to debug
+#               without running commands.
 #
 #====================================================================
-# set -x  : Comment out if you wan to start debugging
+#set -x  : Comment out if you want to start debugging
 #====================================================================
 
 usage(){
@@ -26,13 +26,15 @@ usage: $(basename $0) [OPTIONS] cmd
       -z,--zone				Availability zone for the instance.
       -t,--instance-type		Instace type.
       -i,--id				Instance ID.
+      aliases				List aliases for instances.      
       clone				Clone instance using tags.
       create				Creates a new instance.
+      kill 				Terminates an instance.
       list				Lists instances.
       start				Starts an instance.
       stop				Stops an instance.
-      kill 				Terminates an instance.
-      aliases				List aliases for instances.
+      update                            Runs manual update.
+      
 EOF
 exit
 }
@@ -43,7 +45,7 @@ EC2DIN="$EC2_DIR/ec2din"
 EC2_ALIASES="$EC2_DIR/ec2alias"
 ID_INSTANCE=""
 
-# Create default configuration
+# Creates a default configuration
 if [ ! -d "$EC2_DIR" ];then
 	mkdir "$EC2_DIR" && touch "$EC2_ALIASES" 
 fi
@@ -60,7 +62,7 @@ green=$(tput setaf 2)
 blue=$(tput setaf 4)
 reset=$(tput bold)$(tput sgr0)
 
-## Updates the the file on EC2_DIN
+# Updates the file on EC2_DIN
 update_instances_info() {
 
 	printf "${lgreen}"
@@ -72,10 +74,8 @@ update_instances_info() {
 	ec2out=$(ec2din |grep -Ei "INSTANCE" > "$EC2DIN" ) 
 }
 
-## List the state of the instances and some information, not in realtime. 
-## If you either stop or start an instance it will run 'update_instances_info'
-## in order to give wait sometime and get information about. 
-
+## List the state of the instances and some information else, not in realtime. 
+## If you either stop or start an instance it will run 'update_instances_info'.
 list_instances() {
 
 	if [ ! -e "$EC2DIN" ];then
@@ -84,9 +84,9 @@ list_instances() {
 
 	ec2out=$(cat $EC2DIN)
 	ninstances=$( echo "$ec2out"  | grep -Ec "INSTANCE" )
-	local default="noalias"	
+	local default="undefine"	
 
-	# Fill in an array with the instances' information, on INSTANCE line
+	# Fill in an array with the instances' information, one INSTANCE line
 	# one member of the array.
 	local -A instances=(  );
 
@@ -101,7 +101,7 @@ list_instances() {
 		state=$( echo  ${instances[$n]}  | grep -Eoi "(running|stopped|pending|terminated)")
 		instyp=$(echo  ${instances[$n]}  | grep -Eoi "[t|m|c|g]{1,2}[0-9]\.[0-9]?[a-z]+" )
 
-		aliasami="$(grep $ami "$EC2_ALIASES" | cut -d':' -f1)"
+		aliasami="$(grep $id "$EC2_ALIASES" | cut -d':' -f1)"
 		aliasami="${aliasami:=$default}"
 
 		if [[ "$state" =~ terminated|stopped|pending ]];then 
@@ -113,35 +113,46 @@ list_instances() {
 }
 
 # Creates the instance with the provided arguments, at least 5 args are required
-# AMI, group, keypair, instance type, zone  and optional --alias, which adds
-# a tag to a instance so you can clone instances using that tag.
-
+# AMI, group, keypair, instance type, zone  and optionally '--alias', which associates
+# an alias to an instance, so you can clone instances using that alias.
 create_instance() {
 
 	local -a opts=( $@ )
+	local fn="${FUNCNAME%_*}"
 	alias_instance=${opts[5]}
+	
+	if [ -n "$alias_instance" ];then
+	    unset opts[${#opts[@]}-1]
+	fi
+
+	if [ ${#opts[@]} -ne 5 ];then
+	    printf "Error: args missing, provided %d\n" ${#opts[@]}
+	    exit 0;
+	fi
+	
+       	# Shutdown behavior only valid for EBS instances. I only tinker with
+	# EBS instances, so I'm aware I harcoded this behaviour, although it should be changed.
+	ins=$(ec2run ${opts[0]} -g ${opts[1]} -k ${opts[2]} -t ${opts[3]} -z ${opts[4]} --instance-initiated-shutdown-behavior stop)
+
+	# When cloning, an ID is requried, in order to update  
+	# the '$HOME/.ssh/config'.
+
+	ID_INSTANCE=$( echo  $ins | grep -Eoi "\bi\-[0-9a-z]+\b" )
 
 	# If there is an alias for the instance, unset, otherwise it will not 
 	# match the number of the parameters required on the next if case.
 	# Add aliases on a file, keeping uniquiness of the aliases.
 
 	if [ -n "$alias_instance" ];then
-		unset opts[${#opts[@]}-1]
+		# Add new alias to the EC2_ALIASES file.
+	    printf "%s"  $alias_instance >> $EC2_ALIASES
+	    printf ":%s" ${opts[@]} >> $EC2_ALIASES
+	    printf ":%s\n" $ID_INSTANCE >> $EC2_ALIASES
 	fi
-
-	if [ ${#opts[@]} -ne 5 ];then
-		printf "Error: args missing, provided %d\n" ${#opts[@]}
-		exit 0;
-	fi
+	if [ -n "$alias_instance" ]; then printf "Alias set to  ${lgreen}$alias_instance${reset}\n" ; fi
 	
-	# Shutdown behavior only valid for EBS instances.	
-	ins=$(ec2run ${opts[0]} -g ${opts[1]} -k ${opts[2]} -t ${opts[3]} -z ${opts[4]} --instance-initiated-shutdown-behavior stop)
-
-	# When cloning an ID is requried, in order to update  
-	# the '$HOME/.ssh/config'.
-
-	ID_INSTANCE=$( echo  $ins | grep -Eoi "\bi\-[0-9a-z]+\b" )
-	if [ -n "$alias_instance" ]; then echo "ALIAS:$alias_instance" ; fi
+	# Add the entry to ssh config.
+	update_ssh_config "$ID_INSTANCE" "$fn" "${opts[2]}"
 
 }
 
@@ -149,7 +160,7 @@ create_instance() {
 # ec2wrap start -id i-718ae639
 start_instance() {
 
-	fn="${funcname%_*}"
+	local fn="${FUNCNAME%_*}"
 	local instance_id="$1"
 	printf "Starting $instance_id "
 	ins=$(ec2start $instance_id)
@@ -167,7 +178,7 @@ stop_instance() {
 	update_instances_info 
 }
 
-# Terminates the instane
+# Terminates the instance
 # ec2wrap kill -id i-718ae639
 kill_instance() {
 
@@ -194,11 +205,14 @@ kill_instance() {
 	update_instances_info 
 }
 
+# Updates '$HOME/.ssh/config' with a new entry, if there is not 
+# previous instance ID or updates the public dns of that instance.
 update_ssh_config() {
 
 	local instance_id="$1"	
 	local action="$2"
-	new_public_dns=""
+	local keypair="$3"
+	local new_public_dns=""
 		
 	if [ "$action" != "kill" ];then
 	       	while [ "$new_public_dns" == "" ]
@@ -207,10 +221,9 @@ update_ssh_config() {
 	       	done 
 	fi
 
-	# Check if there is  already an entry,
+	# Check if there is already an entry,
         # delete 'Hostname' entry just after the match of 'Host' 
 	# and then insert the new one.
-
 
 	if [ "$action" == "kill" ];then
 		printf "${lgreen}Updating .ssh/config$reset"
@@ -219,6 +232,7 @@ update_ssh_config() {
 		fi
 	else 
 		cmd=$(grep -Eqi "$instance_id" $HOME/.ssh/config )
+
 		# If there is not match, add a new entry for that AMI.  
 		if [ $? -ne 0 ]; then
 cat<< EOF >> $HOME/.ssh/config
@@ -226,7 +240,7 @@ cat<< EOF >> $HOME/.ssh/config
 Host $instance_id
 	Hostname $new_public_dns
        	User root
-       	IdentityFile /home/$USER/.ssh/ec2-centos.pem	
+       	IdentityFile /home/$USER/.ssh/${keypair}.pem	
 EOF
 		else 
 			r=$(sed -i  "/Host $instance_id/,+1 s/\(Hostname\) \(.*\)/\1 $new_public_dns/" $HOME/.ssh/config )
@@ -254,8 +268,7 @@ tags() {
 }
 
 # Clone instances using alias
-# ec2wrap clone --alias=memache 
-# NOTE: allow to change options from an alias
+# ec2wrap clone --alias=memcache 
 clone() {
 
 	local fn="$FUNCNAME"
@@ -274,7 +287,7 @@ clone() {
 			printf "Error: alias (%s) not found\n"  $alias
 			exit 1
 		else
-			printf "${lblue}Cloning $alias $reset"
+		    
 			# Get all the parameters, allow to override some
 			# and call create_instance with this array.
 	
@@ -301,7 +314,7 @@ clone() {
 			if [ -n "${override['zone']}" ];then
 				zone=${override['zone']}
 			fi
-
+			
 			clone_instance=( $ami $group $keypair $typeins $zone )
 
 			if [ "$_DEBUG"  == "1" ];then
@@ -312,20 +325,17 @@ clone() {
 				echo "Zone: $zone"
 			fi
 			
-			if [ "$_DEBUG" == "" ];then	
-				create_instance "${clone_instance[@]}"	
+			if [ "$_DEBUG" == "" ];then
+			    for((  j=0;  j < ${override['ninstances']} ; j++));do 
+				printf "${lblue}Cloning $alias $reset" 
+				create_instance "${clone_instance[@]}"
+				update_instances_info
+			    done
 			fi
 		fi
 	else
 		printf "Error: alias not found or file not defined\n"
 	fi	
-
-	if [ "$_DEBUG" == "" ];then
-	       	update_instances_info
-		update_ssh_config "$ID_INSTANCE" "$fn"
-		printf "$lred ssh $ID_INSTANCE\n" 
-		#checkKey=$(ssh -o StrictHostKeyChecking=no $ID_INSTANCE)
-	fi
 }
 
 # Parameter substitution shows what variable failed, 
@@ -344,15 +354,15 @@ check_environment() {
 check_environment
 [ "$#" -gt 0 ] || usage
 
-set -- `getopt -u  -n$0 -o ha::m:g::i:k:t:n:z: -l help,alias::,ami:,group::,id:,key-pair:,instance-type:,multiple-instances:,zone: -- "$@"`
+set -- `getopt -u  -n$0 -o hg::m:i:k:t:n::z:a:: -l help,group::,ami:,id:,key-pair:,instance-type:,multiple-instances:,zone::,alias:: -- "$@"`
 
 default_group="default"
-default_instances="1"
+default_instances=1
 while [ $# -gt 0 ]
 do
     case "$1" in
        -a|--alias) aka=$2;shift;;
-       -g|--group) group=${2:=$default_group};shift;;
+       -g|--group) group=$2;shift;;
        -i|--id) id=$2;shift;;
        -k|--key-pair) keypair=$2;shift;;
        -m|--ami) ami=$2;shift;;
@@ -361,26 +371,29 @@ do
        -z|--zone) zone=$2;shift;;
        -h|--help) usage;;
        --)	;;
+
        *)         break;;            
     esac
     shift
 done
 
+group=${group:=$default_group}
+ninstances=${ninstances:=$default_instances}
 declare -a options_new_instance=( $ami $group $keypair $instance_type $zone $aka) 
-declare -A override=( ['group']=$group ['keypair']=$keypair ['instance_type']=$instance_type  ['zone']=$zone ['aka']=$aka);
+declare -A override=( ['group']=$group ['keypair']=$keypair ['instance_type']=$instance_type  ['zone']=$zone ['aka']=$aka ['ninstances']=$ninstances);
 
 option="$1"
 case ${option} in
-	create)		create_instance "${options_new_instance[@]}" ;;
-	clone)		clone  "$(declare -p override)" ;;
-	list)   	list_instances ;;
-	start)	        if [ -n "$id" ]; then start_instance "$id"; fi
-			;;
-	stop) 		if [ -n "$id" ]; then stop_instance "$id"; fi
-			;;
-	kill)     	kill_instance "$id" ;;
-	aliases)       	printf "$lred[${reset}${green}Aliases${red}]$reset\n";tags "$aka";;
-	update)       	printf "Manual update " && update_instances_info ;;
-	*) echo "Not found";;
+    create)		create_instance "${options_new_instance[@]}"; update_instances_info ;;
+    clone)	    clone  "$(declare -p override)";;
+    list)   	list_instances ;;
+    start)	        if [ -n "$id" ]; then start_instance "$id"; fi
+	;;
+    stop) 		if [ -n "$id" ]; then stop_instance "$id"; fi
+	;;
+    kill)     	kill_instance "$id" ;;
+    aliases)       	printf "$lred[${reset}${green}Aliases${red}]$reset\n";tags "$aka";;
+    update)       	printf "Manual update " && update_instances_info ;;
+    *) echo "Not found";;
 esac
 
