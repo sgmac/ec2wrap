@@ -1,8 +1,8 @@
 #!/bin/bash
-#===================================================================
+#====================================================================
 #
 # title:	ec2wrap.sh
-# description:  Manage EC2 instances in a easy way from bash.
+# description:  Manage EC2 instances in a easy way from the shell
 # author:	sergalma@gmail.com
 # date:		11-06-2012
 # version:	0.1
@@ -10,9 +10,9 @@
 # special:	Setting '_DEBUG=1' as a shell env var, allows to debug
 #               without running commands.
 #
-#====================================================================
-#set -x  : Comment out if you want to start debugging
-#====================================================================
+#=====================================================================
+# set -x  : Comment out if you want to start debugging
+#=====================================================================
 
 usage(){
 cat<<EOF
@@ -28,12 +28,12 @@ usage: $(basename $0) [OPTIONS] cmd
       -i,--id				Instance ID.
       aliases				List aliases for instances.      
       clone				Clone instance using tags.
-      create				Creates a new instance.
-      kill 				Terminates an instance.
-      list				Lists instances.
-      start				Starts an instance.
-      stop				Stops an instance.
-      update                            Runs manual update.
+      create				Create a new instance.
+      kill 				Terminate an instance.
+      list				List instances.
+      start				Start an instance.
+      stop				Stop an instance.
+      update                            Run manual update.
       
 EOF
 exit
@@ -87,7 +87,7 @@ list_instances() {
 	local default="undefine"	
 
 	# Fill in an array with the instances' information, one INSTANCE line
-	# one member of the array.
+	# is one element of the array.
 	local -A instances=(  );
 
 	printf "${lblue}AMI\t\t DNS\t\t\t\t\t\t\t STATE\t\t ID\t\t ALIAS\t\t INS.TYPE${reset}\n"
@@ -116,9 +116,10 @@ list_instances() {
 # AMI, group, keypair, instance type, zone  and optionally '--alias', which associates
 # an alias to an instance, so you can clone instances using that alias.
 create_instance() {
-
+	set -x
 	local -a opts=( $@ )
 	local fn="${FUNCNAME%_*}"
+	local keypair="${opts[2]}"
 	alias_instance=${opts[5]}
 	
 	if [ -n "$alias_instance" ];then
@@ -141,7 +142,7 @@ create_instance() {
 
 	# If there is an alias for the instance, unset, otherwise it will not 
 	# match the number of the parameters required on the next if case.
-	# Add aliases on a file, keeping uniquiness of the aliases.
+	# Add aliases on a file, keeping uniquiness of the aliases. 
 
 	if [ -n "$alias_instance" ];then
 		# Add new alias to the EC2_ALIASES file.
@@ -150,9 +151,9 @@ create_instance() {
 	    printf ":%s\n" $ID_INSTANCE >> $EC2_ALIASES
 	fi
 	if [ -n "$alias_instance" ]; then printf "Alias set to  ${lgreen}$alias_instance${reset}\n" ; fi
-	
+	set +x	
 	# Add the entry to ssh config.
-	update_ssh_config "$ID_INSTANCE" "$fn" "${opts[2]}"
+	update_ssh_config "$ID_INSTANCE" "$fn" "$keypair"
 
 }
 
@@ -185,7 +186,7 @@ kill_instance() {
 	local id_instance="$1"
 	local fn="${FUNCNAME%_*}"
 
-	printf "Do you want to continue?\nPress yes or not:" $id_instance
+	printf "Do you want to continue? Press yes or not:" $id_instance
 	read -r -s killornot
         case "$killornot" in
 		Y*|y*)
@@ -208,7 +209,7 @@ kill_instance() {
 # Updates '$HOME/.ssh/config' with a new entry, if there is not 
 # previous instance ID or updates the public dns of that instance.
 update_ssh_config() {
-
+	
 	local instance_id="$1"	
 	local action="$2"
 	local keypair="$3"
@@ -249,16 +250,17 @@ EOF
 			fi
 		fi
 	fi
+	
 }
 
 # List all aliases or a given one
-tags() {
+aliases() {
 
 	# List a given alias or list all if the file exists
 	# and is not empty.
 	local alias="$1"
 	if [ -s "$EC2_ALIASES" ];then
-		if [ -n "$alias" ];then
+		if [ "$alias" != "--" ];then
 			match=$(grep -Ei "$alias" $EC2_ALIASES)
 			printf "${white}%s${reset}\n" $match
 			exit 0;
@@ -306,8 +308,7 @@ clone() {
 			if [ -n "${override['keypair']}" ];then
 				keypair=${override['keypair']}
 			fi
-
-			if [ -n "${override['instance_type']}" ];then
+if [ -n "${override['instance_type']}" ];then
 				typeins=${override['instance_type']}
 			fi
 			
@@ -379,20 +380,19 @@ done
 
 group=${group:=$default_group}
 ninstances=${ninstances:=$default_instances}
+
 declare -a options_new_instance=( $ami $group $keypair $instance_type $zone $aka) 
 declare -A override=( ['group']=$group ['keypair']=$keypair ['instance_type']=$instance_type  ['zone']=$zone ['aka']=$aka ['ninstances']=$ninstances);
 
 option="$1"
 case ${option} in
-    create)		create_instance "${options_new_instance[@]}"; update_instances_info ;;
-    clone)	    clone  "$(declare -p override)";;
+    create)	create_instance "${options_new_instance[@]}"; update_instances_info ;;
+    clone)	clone  "$(declare -p override)";;
     list)   	list_instances ;;
-    start)	        if [ -n "$id" ]; then start_instance "$id"; fi
-	;;
-    stop) 		if [ -n "$id" ]; then stop_instance "$id"; fi
-	;;
+    start)	if [ -n "$id" ]; then start_instance "$id"; fi	;;
+    stop) 	if [ -n "$id" ]; then stop_instance "$id"; fi;;
     kill)     	kill_instance "$id" ;;
-    aliases)       	printf "$lred[${reset}${green}Aliases${red}]$reset\n";tags "$aka";;
+    aliases)       	printf "$lred[${reset}${green}Aliases${red}]$reset\n";aliases "$aka";;
     update)       	printf "Manual update " && update_instances_info ;;
     *) echo "Not found";;
 esac
