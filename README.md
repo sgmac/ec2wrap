@@ -1,6 +1,6 @@
 ## ec2wrap 
 
-Yet another wrapper using the EC2 tools.  Before starting to tinker with libraries such as boto or fog, I decided to give a try with the EC2 tools, and boost my bash skills on the way. 
+Yet another wrapper to manage your EC2 instances. Before starting to tinker with libraries such as _boto_ or _fog_, I decided to give EC2 tools a try and boost my bash skills on the way. 
 
 ![listing](https://s3-eu-west-1.amazonaws.com/sgmac-images/listing.jpg)
 
