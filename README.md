@@ -4,12 +4,12 @@ Yet another wrapper to manage your EC2 instances. Before starting to tinker with
 
 ![listing](https://s3-eu-west-1.amazonaws.com/sgmac-images/listing.jpg)
 
-My workflow with EC2 it's pretty straightforward. I just create instances using either a puclic AMI or an AWS AMI, running a specific service such as Memcache,PostgreSQL or Chef server. Unit testing is present as an example. I used [roundup](https://github.com/bmizerany/roundup), but I barely completed four tests, although I would like to have one test for each of the functions I have.
+My workflow with EC2 it's pretty straightforward. I just create instances using either a public AMI or an AWS AMI, running a specific service such as Memcache,PostgreSQL or Chef server. Unit testing is present as an example. I used [roundup](https://github.com/bmizerany/roundup), but I barely completed four tests, although I would like to have one test for each of the functions I have.  Do not forget to set up you enviroment variables before running the script.
 
 ### Usage
 
 ```bash
-ec2wrap.sh
+$ ec2wrap.sh
 usage: ec2wrap.sh [OPTIONS] cmd
       -h,--help                         Show this menu.
       -a,--alias                        Set alias for an instance.
@@ -33,34 +33,36 @@ usage: ec2wrap.sh [OPTIONS] cmd
 If you create a new instance, assign an alias, next time just clone the alias
 
 ```bash
-ec2wrap.sh  create -m  ami-6996931d -g default  -k mykeypair.pem -t t1.micro -z eu-west-1a  --alias=centos62
+$ ec2wrap.sh  create -m  ami-6996931d -g default  -k mykeypair.pem -t t1.micro -z eu-west-1a  --alias=centos62
 ```
 
 Clone your instance using the above alias
 ```bash
-ec2wrap.sh clone -a centos62
+$ ec2wrap.sh clone -a centos62
 ``` 
 It's also possible to clone and modify some of the attributes, such as group, zone or instance type. 
 ```bash
-ec2wrap.sh clone -a centos62 -t m1.small
+$ ec2wrap.sh clone -a centos62 -t m1.small
 ```
 
-You might need to create several instances of the same alias, in the next example I create three instances using the 
+You might need to create several instances of the same alias, in the next example I launch three instances using the 
 **memcache** alias.
 
 ```bash
-ec2wrap.sh clone -a memcache -n 3
+$ ec2wrap.sh clone -a memcache -n 3
 ```
 If you are familiar with EC2, you already know that when starting or stopping instances your public dns changes. I managed to add a host definition to the  _/.ssh/config_ using the instance ID. Every time you start the instance the file is updated with the new public dns. 
 
 ```bash
-ec2wrap.sh start -i i-cb80ea83 
+$ ec2wrap.sh start -i i-cb80ea83 
 ```
 Log in your instance:
 ```bash
 ssh i-cb80ea83
 
 ```
+
+### 
 ### MIT License 
 
 Copyright (C) 2012 by Sergio Galván
