@@ -116,7 +116,6 @@ list_instances() {
 # AMI, group, keypair, instance type, zone  and optionally '--alias', which associates
 # an alias to an instance, so you can clone instances using that alias.
 create_instance() {
-	set -x
 	local -a opts=( $@ )
 	local fn="${FUNCNAME%_*}"
 	local keypair="${opts[2]}"
@@ -355,7 +354,7 @@ check_environment() {
 check_environment
 [ "$#" -gt 0 ] || usage
 
-set -- `getopt -u  -n$0 -o hg::m:i:k:t:n::z:a:: -l help,group::,ami:,id:,key-pair:,instance-type:,multiple-instances:,zone::,alias:: -- "$@"`
+set -- `getopt -u  -n$0 -o hg::m:i:k:t:n::z:a:: -l help,group::,ami:,id:,keypair:,instance_type:,multiple-instances:,zone::,alias:: -- "$@"`
 
 default_group="default"
 default_instances=1
@@ -365,7 +364,7 @@ do
        -a|--alias) aka=$2;shift;;
        -g|--group) group=$2;shift;;
        -i|--id) id=$2;shift;;
-       -k|--key-pair) keypair=$2;shift;;
+       -k|--keypair) keypair=$2;shift;;
        -m|--ami) ami=$2;shift;;
        -n|--multiple-instances) ninstances=$2;shift;;
        -t|--instance-type) instance_type=$2;shift ;;
